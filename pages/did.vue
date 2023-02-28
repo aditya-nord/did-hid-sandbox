@@ -17,6 +17,22 @@
 					</div>
 					<div v-else>
 						<h3>You are now connected with {{ walletAddress }}</h3>
+						<br />
+						<h4>Addresses:</h4>
+						<div
+							class="event-card"
+							v-for="vMethod in didDocument.verificationMethod"
+							:key="vMethod.id"
+						>
+							<div class="centered card-title">
+								<label>{{
+									parseBlockchainAccountId(
+										vMethod.blockchainAccountId
+									).walletAddress
+								}}</label>
+							</div>
+						</div>
+						<br />
 
 						<v-btn color="primary" dark @click.stop="dialog = true">
 							View DID
@@ -100,6 +116,17 @@ export default {
 		}
 	},
 	methods: {
+		parseBlockchainAccountId(bId) {
+			if (bId) {
+				const bIds = bId.split(':')
+				console.log(bIds)
+				return {
+					walletAddress: bIds[2],
+					chainId: bIds[1],
+				}
+			}
+		},
+
 		async connectWallet() {
 			await this.$store.dispatch('connectWallet')
 			if (this.$store.state.walletAddress !== '') {
@@ -197,12 +224,15 @@ export default {
 						ldToJsonConvertor(this.$store.state.didDocument)
 					)
 				)
+				// verificationMethodId: JSON.parse(message).verificationMethod.find(x => x.blockchainAccountId.includes(this.walletAddressEdit.address)).id,
 				const vmId = this.didDocument.verificationMethod.find((x) =>
-					x.id.includes(this.walletAddress) ? x.id : undefined
-				)
+					x.blockchainAccountId.includes(
+						this.$store.state.walletAddOnSignatures[0].walletAddress
+					)
+				).id
 				console.log(vmId)
 				const updateDIDPayload = {
-					verificationMethodId: vmId.id,
+					verificationMethodId: vmId,
 					signature: signedMessage,
 					didDocument: this.$store.state.didDocument,
 					// walletAddOnSignatures:
