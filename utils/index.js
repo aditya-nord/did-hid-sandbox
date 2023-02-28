@@ -72,7 +72,7 @@ export const getEthersProvider = async () => {
 	}
 }
 
-export const getEthersSigner = async () => {
+export const closeWalletConnection = async () => {
 	try {
 		const providerOptions = {
 			walletconnect: {
@@ -86,42 +86,17 @@ export const getEthersSigner = async () => {
 			cacheProvider: false, // optional
 			providerOptions, // required
 		})
-		const ethereumProvider = await web3Modal.connect()
-		const provider = new ethers.providers.Web3Provider(ethereumProvider)
-		const accounts = await provider.listAccounts()
-		const chainId = (await provider.getNetwork()).chainId
-		console.log('chainId ', chainId)
-		if (chainId != 1) {
-			try {
-				await provider.provider.request({
-					method: 'wallet_switchEthereumChain',
-					params: [{ chainId: toHex(NETWORK) }],
-				})
-			} catch (switchError) {
-				if (switchError.code === 4902) {
-					try {
-						await provider.provider.request({
-							method: 'wallet_addEthereumChain',
-							params: [networkParams[toHex(NETWORK)]],
-						})
-					} catch (error) {
-						console.error(error)
-					}
-				}
-			}
-		}
+		web3Modal.clearCachedProvider()
+
+		console.log('Successfully cleared the web3 modal cache')
 
 		return {
 			success: true,
-			address: accounts[0],
-			signer: provider.getSigner(),
 		}
 	} catch (error) {
 		console.error(error)
 		return {
 			success: false,
-			address: '',
-			signer: null,
 		}
 	}
 }
@@ -149,6 +124,7 @@ export const verifyMessage = async ({ message, address, signature }) => {
 		if (signerAddress !== address) {
 			return false
 		}
+		console.log('Signature successfully verified')
 		return true
 	} catch (err) {
 		console.log(err)

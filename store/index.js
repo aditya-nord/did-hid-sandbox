@@ -19,6 +19,9 @@ export const mutations = {
 	setDidDocument(state, payload) {
 		state.didDocument = payload.didDocument
 	},
+	setDid(state, payload) {
+		state.did = payload.did
+	},
 	setFlagsAfterRegisterOrResolve(state) {
 		state.didResolved = true
 		state.didRegistered = true
@@ -40,20 +43,26 @@ export const mutations = {
 			state.didDocument.verificationMethod.length + 1
 		}`
 
-		state.didDocument.verificationMethod.push({
+		const verificationMethodObj = {
 			id: vmId,
 			type: 'EcdsaSecp256k1RecoveryMethod2020',
 			controller: controller,
 			blockchainAccountId: blockchainId,
-		})
+		}
+
+		console.log('Verification Method Object')
+		console.log(verificationMethodObj)
+
+		state.didDocument.verificationMethod.push(verificationMethodObj)
 		state.didDocument.authentication.push(vmId)
 		state.didDocument.assertionMethod.push(vmId)
 	},
 	pushNewWalletSignature(state, payload) {
-		const { walletAddress, signature } = payload
+		const { walletAddress, signature, message } = payload
 		state.walletAddOnSignatures.push({
 			walletAddress,
 			signature,
+			message,
 		})
 	},
 	clearAddress(state) {
@@ -65,7 +74,6 @@ export const mutations = {
 export const actions = {
 	async connectWallet({ commit, dispatch }) {
 		try {
-			dispatch('getIP')
 			const { success, provider, address } = await getEthersProvider()
 			if (!success || provider == null) {
 				throw new Error('Provider not found')
@@ -83,18 +91,25 @@ export const actions = {
 	async resolveDID({ state, commit, dispatch }) {
 		const payload = {
 			walletAddress: state.walletAddress,
-			chainId: toHex(NETWORK),
 		}
 		// let didId = `did:hid:testnet:${this.walletAddress}`
 		try {
 			const data = await this.$axios.$post(
-				'http://localhost:1555/v1/did/resolve',
+				'http://localhost:1450/v1/did/resolve',
 				payload
 			)
 			console.log(data)
-			const didDoc = data.data.didDoc
-			commit('setDidDocument', { didDocument: didDoc })
-			return true
+			if (
+				Object.keys(data.didDocument).length == 0 ||
+				data.didDocumentMetadata == null
+			) {
+				return false
+			} else {
+				const didDocument = data.didDocument
+				commit('setDidDocument', { didDocument })
+				commit('setDid', { did: data.didDocument.id })
+				return true
+			}
 		} catch (error) {
 			console.error(error)
 		}
@@ -107,13 +122,21 @@ export const actions = {
 		}
 		try {
 			const data = await this.$axios.$post(
-				'http://localhost:1555/v1/did/create',
+				'http://localhost:1450/v1/did/create',
 				payload
 			)
 			console.log(data)
-			const didDoc = data.data.didDoc
-			commit('setDidDocument', { didDocument: didDoc })
-			return true
+			if (
+				Object.keys(data.metaData.didDocument).length == 0 &&
+				data.did.length == 0
+			) {
+				return false
+			} else {
+				const didDocument = data.metaData.didDocument
+				commit('setDidDocument', { didDocument })
+				commit('setDid', { did: data.did })
+				return true
+			}
 		} catch (error) {
 			console.error(error)
 		}
@@ -124,11 +147,10 @@ export const actions = {
 			// Resolve first to ensure not already registered
 			// Must verify signature once
 			const data = await this.$axios.$post(
-				'http://localhost:1555/v1/did/register',
+				'http://localhost:1450/v1/did/register',
 				payload
 			)
 			console.log(data)
-			const didDoc = data.data.didDoc
 			commit('setFlagsAfterRegisterOrResolve')
 			return true
 		} catch (error) {
@@ -152,8 +174,9 @@ export const actions = {
 		try {
 			// Resolve first to ensure already registered
 			// Must verify the signatures on the backend
-			const data = await this.$axios.$post(
-				'http://localhost:1555/v1/did/update',
+			console.log(payload)
+			const data = await this.$axios.$patch(
+				'http://localhost:1450/v1/did/update',
 				payload
 			)
 			console.log(data)
