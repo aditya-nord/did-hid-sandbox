@@ -80,15 +80,12 @@ export const actions = {
 			return false
 		}
 	},
-	async getIP({ commit }) {
-		const ip = await this.$axios.$get('http://icanhazip.com')
-		console.log(ip)
-	},
 	async resolveDID({ state, commit, dispatch }) {
 		const payload = {
 			walletAddress: state.walletAddress,
 			chainId: toHex(NETWORK),
 		}
+		// let didId = `did:hid:testnet:${this.walletAddress}`
 		try {
 			const data = await this.$axios.$post(
 				'http://localhost:1555/v1/did/resolve',
@@ -124,6 +121,8 @@ export const actions = {
 	},
 	async registerDID({ commit }, payload) {
 		try {
+			// Resolve first to ensure not already registered
+			// Must verify signature once
 			const data = await this.$axios.$post(
 				'http://localhost:1555/v1/did/register',
 				payload
@@ -151,6 +150,8 @@ export const actions = {
 	},
 	async updateDID({ commit }, payload) {
 		try {
+			// Resolve first to ensure already registered
+			// Must verify the signatures on the backend
 			const data = await this.$axios.$post(
 				'http://localhost:1555/v1/did/update',
 				payload
