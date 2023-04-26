@@ -5,6 +5,7 @@ export const state = () => ({
 	walletAddress: '',
 	walletConnected: false,
 	didDocument: {},
+	unregisteredVerificationMethods: [],
 	didResolved: false,
 	didRegistered: false,
 	did: '',
@@ -20,7 +21,7 @@ export const getters = {
 			}
 			return value;
 		})
-	},
+	}
 }
 
 export const mutations = {
@@ -40,7 +41,7 @@ export const mutations = {
 	},
 	upsertNewVerificationMethodToDidDocument(state, payload) {
 		const { blockchainId } = payload
-
+	
 		const t = state.didDocument.verificationMethod.find(
 			(x) => x.blockchainAccountId === blockchainId
 		)
@@ -51,10 +52,7 @@ export const mutations = {
 		}
 
 		const controller = state.did
-		// const vmId = `${controller}#key-${state.didDocument.verificationMethod.length + 1
-		// 	}`
 		const newVmId = `did:hid:testnet:${state.walletAddress}#key-${state.didDocument.verificationMethod.length + 1}`
-
 
 		const verificationMethodObj = {
 			id: newVmId,
@@ -70,33 +68,8 @@ export const mutations = {
 		state.didDocument.verificationMethod.push(verificationMethodObj)
 		state.didDocument.authentication.push(newVmId)
 		state.didDocument.assertionMethod.push(newVmId)
-	},
-	pushNewWalletSignature(state, payload) {
-		const { walletAddress, signature, message, verification_method_id } = payload
-		const blockchainId = `eip155:${NETWORK}:${walletAddress}`
+		state.unregisteredVerificationMethods.push(newVmId)
 
-		// verification_method_id: "", // did:hid:testnet:0xB08138Cb5F6Ac6b908F0F70B72F8092EAe12a9cd#key-1
-		// 			signature: "",
-		// 			clientSpec: {
-		// 				type: "eth-personalSign",
-		// 				adr036SignerAddress: ""
-		// 			}
-		state.walletAddOnSignatures.push({
-			walletAddress,
-			signature,
-			message,
-		})
-		if(state.signInfos.findIndex((v) => v.verification_method_id == verification_method_id) == -1) {
-
-			state.signInfos.push({
-				verification_method_id,
-				signature,
-				clientSpec: {
-					type: "eth-personalSign",
-					adr036SignerAddress: ""
-				}
-			})
-		}
 	},
 	clearAddress(state) {
 		state.walletAddress = ''
@@ -125,7 +98,6 @@ export const actions = {
 		const payload = {
 			walletAddress: state.walletAddress,
 		}
-		// let didId = `did:hid:testnet:${this.walletAddress}`
 		try {
 			const data = await this.$axios.$post(
 				'http://localhost:1450/v1/did/resolve',
@@ -194,7 +166,6 @@ export const actions = {
 	async addNewWallet({ state, commit }) {
 		const blockchainId = `eip155:${NETWORK}:${state.walletAddress}`
 		try {
-			// const newWalletDidId = `${state.did}#key-${state.didDocument.verificationMethod.length + 1}`
 			const vmId = `did:hid:testnet:${state.walletAddress}#key-${state.didDocument.verificationMethod.length + 1}`
 			await commit('upsertNewVerificationMethodToDidDocument', {
 				blockchainId,
@@ -206,7 +177,7 @@ export const actions = {
 		}
 		return { status: false, data: null }
 	},
-	async updateDID({ commit }, payload) {
+	async updateDID({ dispatch }, payload) {
 		try {
 			// Resolve first to ensure already registered
 			// Must verify the signatures on the backend
@@ -216,6 +187,7 @@ export const actions = {
 				payload
 			)
 			console.log(data)
+			dispatch('resolveDID')
 			// const didDoc = data.data.didDoc
 			// commit('setDidDocument', { didDocument: didDoc })
 			return true

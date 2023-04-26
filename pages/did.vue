@@ -39,7 +39,7 @@
 						Add Wallet
 					</v-btn>
 					<br />
-					<v-btn class="mt-15" @click="saveAndUpdateDID" color="primary">
+					<v-btn class="mt-15" @click="save" color="primary">
 						Save Changes
 					</v-btn>
 				</v-card-text>
@@ -65,11 +65,20 @@
 				<v-card>
 					<v-card-title class="text-h5"> Switch Wallet </v-card-title>
 					<v-card-text>
-						<h2>Switch your wallet to continue</h2>
+						<h2>Switch your wallet to continue. <span v-if="errorAlertDialogue">{{ errorAlertMsg }}</span></h2>
 					</v-card-text>
 				</v-card>
 			</v-dialog>
 		</v-col>
+		<v-snackbar v-model="snackbar" :timeout="timeout">
+			{{ snackbarText }}
+
+			<template v-slot:action="{ attrs }">
+				<v-btn color="blue" text v-bind="attrs" @click="snackbar = false">
+					Close
+				</v-btn>
+			</template>
+		</v-snackbar>
 	</v-row>
 </template>
 
@@ -85,8 +94,8 @@ import {
 export default {
 	name: 'DidPage',
 	computed: {
-		...mapState(['walletAddress', 'didDocument']),
-        ...mapGetters(['getDIDDocJSONString']),
+		...mapState(['walletAddress', 'didDocument', 'unregisteredVerificationMethods']),
+		...mapGetters(['getDIDDocJSONString']),
 
 	},
 	data() {
@@ -95,9 +104,15 @@ export default {
 			valid: true,
 			dialog: false,
 			walletSwitchDialog: false,
+			errorAlertDialogue: false,
+			errorAlertMsg: "",
+			snackbar: false,
+			snackbarText: "",
+			timeout: 2000,
 		}
 	},
 	methods: {
+		// Util functions
 		parseBlockchainAccountId(bId) {
 			if (bId) {
 				const bIds = bId.split(':')
@@ -109,18 +124,12 @@ export default {
 			}
 		},
 
-		async connectWallet() {
-			await this.$store.dispatch('connectWallet')
-			if (this.$store.state.walletAddress !== '') {
-				this.walletConnected = true
-			}
-			this.attemptToResolve()
-		},
+		// Function called internally within the page
 		async switchWallet() {
 			this.walletSwitchDialog = true
 			setTimeout(() => {
 				this.walletSwitchDialog = false
-			}, 2000)
+			}, 3000)
 			await closeWalletConnection()
 			this.$store.commit('clearAddress')
 			await this.$store.dispatch('connectWallet')
@@ -139,13 +148,13 @@ export default {
 			const signedMessage = signer.signMessage(didDoc)
 			return signedMessage
 		},
-		// disconnect and allow to reconnect
 		async attemptToResolve() {
 			//Try to resolve the connected wallet
 			// If resolved, show document otherwise begin register process
 			try {
 				if (await this.$store.dispatch('resolveDID')) {
 					console.log('Resolved DID')
+					this.registeredVMs = this.didDocument.verificationMethod;
 				} else {
 					this.beginCreateAndRegister()
 				}
@@ -175,72 +184,98 @@ export default {
 				console.error(error)
 			}
 		},
+		async getWalletSignature(address) {
+			try {
+				while (this.$store.state.walletAddress.toLowerCase() != address.toLowerCase()) {
+					this.errorAlertDialogue = true
+					this.errorAlertMsg = `Please connect with the ${address} to continue.`
+					await this.switchWallet()
+				}
+				this.errorAlertDialogue = true
+				const verificationMethodId = this.didDocument.verificationMethod.filter(x => x.id.includes(address))[0].id;
+				console.log({ verificationMethodId })
+				const signedMessage = await this.signTheMessage(
+					this.getDIDDocJSONString
+				)
+				await verifyMessage({
+					message: this.getDIDDocJSONString,
+					address: this.$store.state.walletAddress,
+					signature: signedMessage,
+				})
+				return {
+					status: true, data: {
+						verification_method_id: verificationMethodId,
+						signature: signedMessage,
+						clientSpec: {
+							type: "eth-personalSign",
+							adr036SignerAddress: ""
+						}
+					}
+				}
+			} catch (error) {
+				console.error(error)
+				return { status: false, data: null }
+			}
+		},
+
+		// Functions called upon an event such as button click
+		async connectWallet() {
+			await this.$store.dispatch('connectWallet')
+			if (this.$store.state.walletAddress !== '') {
+				this.walletConnected = true
+			}
+			this.attemptToResolve()
+		},
 		async beginAddNewWallet() {
 			try {
-				// disconnect
-				// show modal with message to switch to new wallet
 				await this.switchWallet()
-				// TODO: Should check if the connected wallet resolves to a DID, continue only if it doesn't
 				const newWalletDidId = await this.$store.dispatch('addNewWallet');
 				console.log(newWalletDidId)
-				if (newWalletDidId.status) {
-					const message = this.getDIDDocJSONString
-					const signedMessage = await this.signTheMessage(message)
-					await verifyMessage({
-						message: this.getDIDDocJSONString,
-						address: this.$store.state.walletAddress,
-						signature: signedMessage,
-					})
-					this.$store.commit('pushNewWalletSignature', {
-						walletAddress: this.$store.state.walletAddress,
-						signature: signedMessage,
-						message,
-						verification_method_id: newWalletDidId.data
-					})
-				}
 			} catch (error) {
 				console.error(error)
 			}
 		},
 		async saveAndUpdateDID() {
 			try {
-				// disconnect
-				// show modal with message to switch to controller wallet
-				await this.switchWallet()
-				const signedMessage = await this.signTheMessage(
-					this.getDIDDocJSONString
-				)
-				// verificationMethodId: JSON.parse(message).verificationMethod.find(x => x.blockchainAccountId.includes(this.walletAddressEdit.address)).id,
-				const vmId = this.didDocument.verificationMethod.find((x) =>
-					x.blockchainAccountId.includes(
-						this.$store.state.walletAddress
-					)
-				).id
-				console.log(vmId)
-				const signInfos = []
-				signInfos.push({
-					verification_method_id: vmId,
-					signature: signedMessage,
-					clientSpec: {
-						type: "eth-personalSign",
-						adr036SignerAddress: ""
+				console.log({new: this.didDocument.verificationMethod, old: this.unregisteredVerificationMethods})
+				const newVerificationMethods = this.didDocument.verificationMethod.filter(x => this.unregisteredVerificationMethods.findIndex(y => y == x.id) == -1 ? false : true)
+				console.log({ newVerificationMethods })
+
+				if (newVerificationMethods.length == 0) {
+					this.snackbarText = "No new wallets added for the DID Doc to be updated.";
+					this.snackbar = true;
+					return
+				}
+
+				const signInfos = [];
+
+				for (let i = 0; i < newVerificationMethods.length; i++) {
+					const vm = newVerificationMethods[i];
+					const address = vm.blockchainAccountId.split(':')[2];
+					const walletSignature = await this.getWalletSignature(address);
+					if (!walletSignature.status) {
+						this.snackbarText = "Could not record the wallet signature, please try again.";
+						this.snackbar = true;
+						return;
 					}
-				})
-				signInfos.push(...this.$store.state.signInfos)
+					signInfos.push(walletSignature.data)
+				}
+
+				const controllerWalletVm = this.didDocument.verificationMethod.filter(x => x.id.includes('key-1'))[0];
+				const controllerWalletAddress = controllerWalletVm.blockchainAccountId.split(':')[2]
+				const controllerSignature = await this.getWalletSignature(controllerWalletAddress)
+
+				if (!controllerSignature.status) {
+					this.snackbarText = "Could not record the controller signature, please try again.";
+					this.snackbar = true;
+					return;
+				}
+				signInfos.push(controllerSignature.data)
+
 				const updateDIDPayload = {
-					didDocument: ldToJsonConvertor(JSON.parse(JSON.stringify(ldToJsonConvertor(this.$store.state.didDocument), (key, value) => {
-						if (value === "" || (Array.isArray(value) && value.length === 0)) {
-							return undefined;
-						}
-						return value;
-					}))),
+					didDocument: ldToJsonConvertor(JSON.parse(this.getDIDDocJSONString)),
 					signInfos
 				}
-				await verifyMessage({
-					message: this.getDIDDocJSONString,
-					address: this.$store.state.walletAddress,
-					signature: signedMessage,
-				})
 				await this.$store.dispatch('updateDID', updateDIDPayload)
 			} catch (error) {
 				console.error(error)
