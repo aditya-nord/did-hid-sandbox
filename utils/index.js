@@ -106,11 +106,11 @@ export const ldToJsonConvertor = (ld) => {
 	for (const key in ld) {
 		if (key === '@context') {
 			json['context'] = ld[key]
-		} else if (
-			ld[key] === '' ||
-			(Array.isArray(ld[key]) && ld[key].length === 0)
-		) {
-			json[key] = undefined
+		// } else if (
+		// 	ld[key] === '' ||
+		// 	(Array.isArray(ld[key]) && ld[key].length === 0)
+		// ) {
+		// 	json[key] = undefined
 		} else {
 			json[key] = ld[key]
 		}

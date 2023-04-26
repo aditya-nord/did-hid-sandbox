@@ -1,5 +1,5 @@
 import { ethers } from 'ethers'
-import { getEthersProvider, NETWORK, toHex } from '../utils/index'
+import { getEthersProvider, ldToJsonConvertor, NETWORK, toHex } from '../utils/index'
 
 export const state = () => ({
 	walletAddress: '',
@@ -9,7 +9,19 @@ export const state = () => ({
 	didRegistered: false,
 	did: '',
 	walletAddOnSignatures: [],
+	signInfos: [],
 })
+
+export const getters = {
+	getDIDDocJSONString: (state) => {
+		return JSON.stringify(ldToJsonConvertor(state.didDocument), (key, value) => {
+			if (value === "" || (Array.isArray(value) && value.length === 0)) {
+				return undefined;
+			}
+			return value;
+		})
+	},
+}
 
 export const mutations = {
 	setAddress(state, payload) {
@@ -39,31 +51,52 @@ export const mutations = {
 		}
 
 		const controller = state.did
-		const vmId = `${controller}#key-${
-			state.didDocument.verificationMethod.length + 1
-		}`
+		// const vmId = `${controller}#key-${state.didDocument.verificationMethod.length + 1
+		// 	}`
+		const newVmId = `did:hid:testnet:${state.walletAddress}#key-${state.didDocument.verificationMethod.length + 1}`
+
 
 		const verificationMethodObj = {
-			id: vmId,
+			id: newVmId,
 			type: 'EcdsaSecp256k1RecoveryMethod2020',
 			controller: controller,
 			blockchainAccountId: blockchainId,
+			publicKeyMultibase: ""
 		}
 
 		console.log('Verification Method Object')
 		console.log(verificationMethodObj)
 
 		state.didDocument.verificationMethod.push(verificationMethodObj)
-		state.didDocument.authentication.push(vmId)
-		state.didDocument.assertionMethod.push(vmId)
+		state.didDocument.authentication.push(newVmId)
+		state.didDocument.assertionMethod.push(newVmId)
 	},
 	pushNewWalletSignature(state, payload) {
-		const { walletAddress, signature, message } = payload
+		const { walletAddress, signature, message, verification_method_id } = payload
+		const blockchainId = `eip155:${NETWORK}:${walletAddress}`
+
+		// verification_method_id: "", // did:hid:testnet:0xB08138Cb5F6Ac6b908F0F70B72F8092EAe12a9cd#key-1
+		// 			signature: "",
+		// 			clientSpec: {
+		// 				type: "eth-personalSign",
+		// 				adr036SignerAddress: ""
+		// 			}
 		state.walletAddOnSignatures.push({
 			walletAddress,
 			signature,
 			message,
 		})
+		if(state.signInfos.findIndex((v) => v.verification_method_id == verification_method_id) == -1) {
+
+			state.signInfos.push({
+				verification_method_id,
+				signature,
+				clientSpec: {
+					type: "eth-personalSign",
+					adr036SignerAddress: ""
+				}
+			})
+		}
 	},
 	clearAddress(state) {
 		state.walletAddress = ''
@@ -100,14 +133,14 @@ export const actions = {
 			)
 			console.log(data)
 			if (
-				Object.keys(data.didDocument).length == 0 ||
-				data.didDocumentMetadata == null
+				Object.keys(data.data.didDocument).length == 0 ||
+				data.data.didDocumentMetadata == null
 			) {
 				return false
 			} else {
-				const didDocument = data.didDocument
+				const didDocument = data.data.didDocument
 				commit('setDidDocument', { didDocument })
-				commit('setDid', { did: data.didDocument.id })
+				commit('setDid', { did: data.data.didDocument.id })
 				return true
 			}
 		} catch (error) {
@@ -127,14 +160,14 @@ export const actions = {
 			)
 			console.log(data)
 			if (
-				Object.keys(data.metaData.didDocument).length == 0 &&
-				data.did.length == 0
+				Object.keys(data.data.metaData.didDocument).length == 0 &&
+				data.data.did.length == 0
 			) {
 				return false
 			} else {
-				const didDocument = data.metaData.didDocument
+				const didDocument = data.data.metaData.didDocument
 				commit('setDidDocument', { didDocument })
-				commit('setDid', { did: data.did })
+				commit('setDid', { did: data.data.did })
 				return true
 			}
 		} catch (error) {
@@ -161,14 +194,17 @@ export const actions = {
 	async addNewWallet({ state, commit }) {
 		const blockchainId = `eip155:${NETWORK}:${state.walletAddress}`
 		try {
+			// const newWalletDidId = `${state.did}#key-${state.didDocument.verificationMethod.length + 1}`
+			const vmId = `did:hid:testnet:${state.walletAddress}#key-${state.didDocument.verificationMethod.length + 1}`
 			await commit('upsertNewVerificationMethodToDidDocument', {
 				blockchainId,
 			})
-			return true
+
+			return { status: true, data: vmId }
 		} catch (error) {
 			console.error(error)
 		}
-		return false
+		return { status: false, data: null }
 	},
 	async updateDID({ commit }, payload) {
 		try {
@@ -180,8 +216,8 @@ export const actions = {
 				payload
 			)
 			console.log(data)
-			const didDoc = data.data.didDoc
-			commit('setDidDocument', { didDocument: didDoc })
+			// const didDoc = data.data.didDoc
+			// commit('setDidDocument', { didDocument: didDoc })
 			return true
 		} catch (error) {
 			console.error(error)

@@ -7,11 +7,7 @@
 				</v-card-title>
 				<v-card-text class="mt-5">
 					<div style="text-align: center" v-if="!walletConnected">
-						<v-btn
-							class="mt-15"
-							@click="connectWallet"
-							color="primary"
-						>
+						<v-btn class="mt-15" @click="connectWallet" color="primary">
 							Connect Wallet
 						</v-btn>
 					</div>
@@ -19,11 +15,7 @@
 						<h3>You are now connected with {{ walletAddress }}</h3>
 						<br />
 						<h4>Addresses:</h4>
-						<div
-							class="event-card"
-							v-for="vMethod in didDocument.verificationMethod"
-							:key="vMethod.id"
-						>
+						<div class="event-card" v-for="vMethod in didDocument.verificationMethod" :key="vMethod.id">
 							<div class="centered card-title">
 								<label>{{
 									parseBlockchainAccountId(
@@ -43,19 +35,11 @@
 			<v-card style="text-align: center" v-if="walletConnected">
 				<v-card-title class="headline"> Actions on DID </v-card-title>
 				<v-card-text class="mt-5">
-					<v-btn
-						class="mt-15"
-						@click="beginAddNewWallet"
-						color="primary"
-					>
+					<v-btn class="mt-15" @click="beginAddNewWallet" color="primary">
 						Add Wallet
 					</v-btn>
 					<br />
-					<v-btn
-						class="mt-15"
-						@click="saveAndUpdateDID"
-						color="primary"
-					>
+					<v-btn class="mt-15" @click="saveAndUpdateDID" color="primary">
 						Save Changes
 					</v-btn>
 				</v-card-text>
@@ -71,11 +55,7 @@
 					<v-card-actions>
 						<v-spacer></v-spacer>
 
-						<v-btn
-							color="green darken-1"
-							text
-							@click="dialog = false"
-						>
+						<v-btn color="green darken-1" text @click="dialog = false">
 							Close
 						</v-btn>
 					</v-card-actions>
@@ -94,7 +74,7 @@
 </template>
 
 <script>
-import { mapState } from 'vuex'
+import { mapState, mapGetters } from 'vuex'
 import {
 	getEthersProvider,
 	ldToJsonConvertor,
@@ -106,6 +86,8 @@ export default {
 	name: 'DidPage',
 	computed: {
 		...mapState(['walletAddress', 'didDocument']),
+        ...mapGetters(['getDIDDocJSONString']),
+
 	},
 	data() {
 		return {
@@ -199,15 +181,21 @@ export default {
 				// show modal with message to switch to new wallet
 				await this.switchWallet()
 				// TODO: Should check if the connected wallet resolves to a DID, continue only if it doesn't
-				if (await this.$store.dispatch('addNewWallet')) {
-					const message = JSON.stringify(
-						ldToJsonConvertor(this.$store.state.didDocument)
-					)
+				const newWalletDidId = await this.$store.dispatch('addNewWallet');
+				console.log(newWalletDidId)
+				if (newWalletDidId.status) {
+					const message = this.getDIDDocJSONString
 					const signedMessage = await this.signTheMessage(message)
+					await verifyMessage({
+						message: this.getDIDDocJSONString,
+						address: this.$store.state.walletAddress,
+						signature: signedMessage,
+					})
 					this.$store.commit('pushNewWalletSignature', {
 						walletAddress: this.$store.state.walletAddress,
 						signature: signedMessage,
 						message,
+						verification_method_id: newWalletDidId.data
 					})
 				}
 			} catch (error) {
@@ -220,28 +208,36 @@ export default {
 				// show modal with message to switch to controller wallet
 				await this.switchWallet()
 				const signedMessage = await this.signTheMessage(
-					JSON.stringify(
-						ldToJsonConvertor(this.$store.state.didDocument)
-					)
+					this.getDIDDocJSONString
 				)
 				// verificationMethodId: JSON.parse(message).verificationMethod.find(x => x.blockchainAccountId.includes(this.walletAddressEdit.address)).id,
 				const vmId = this.didDocument.verificationMethod.find((x) =>
 					x.blockchainAccountId.includes(
-						this.$store.state.walletAddOnSignatures[0].walletAddress
+						this.$store.state.walletAddress
 					)
 				).id
 				console.log(vmId)
-				const updateDIDPayload = {
-					verificationMethodId: vmId,
+				const signInfos = []
+				signInfos.push({
+					verification_method_id: vmId,
 					signature: signedMessage,
-					didDocument: this.$store.state.didDocument,
-					// walletAddOnSignatures:
-					// 	this.$store.state.walletAddOnSignatures,
+					clientSpec: {
+						type: "eth-personalSign",
+						adr036SignerAddress: ""
+					}
+				})
+				signInfos.push(...this.$store.state.signInfos)
+				const updateDIDPayload = {
+					didDocument: ldToJsonConvertor(JSON.parse(JSON.stringify(ldToJsonConvertor(this.$store.state.didDocument), (key, value) => {
+						if (value === "" || (Array.isArray(value) && value.length === 0)) {
+							return undefined;
+						}
+						return value;
+					}))),
+					signInfos
 				}
 				await verifyMessage({
-					message: JSON.stringify(
-						ldToJsonConvertor(this.$store.state.didDocument)
-					),
+					message: this.getDIDDocJSONString,
 					address: this.$store.state.walletAddress,
 					signature: signedMessage,
 				})
